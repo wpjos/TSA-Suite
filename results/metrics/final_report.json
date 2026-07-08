@@ -1,0 +1,36 @@
+{
+  "best_hpo_params": {
+    "d_model": 125.0,
+    "nhead": 4.0,
+    "num_layers": 2.0,
+    "dropout": 0.1351109280535652,
+    "lag_max": 14.0,
+    "kan_grid_size": 3.0,
+    "epochs": 14.0,
+    "batch_size": 37.0,
+    "lr": 0.006744369003020296,
+    "trend_weight": 0.3974575367846146
+  },
+  "best_hpo_metrics": {
+    "mse": 6.350472450256348,
+    "rmse": 2.5200143750098625,
+    "mae": 2.033557415008545,
+    "mape": 354.99095916748047,
+    "smape": 116.9770359992981,
+    "mase": 1.4311181044865322,
+    "dtw": 1.7512897066771984,
+    "r2": -0.35532890821474705
+  },
+  "final_model_dir": "/Users/panhui/Desktop/ph_hw/lanqu_code/TSA-Suite/results/models_hpo/trial_0002",
+  "final_model_metrics": {
+    "mse": 6.350472450256348,
+    "rmse": 2.5200143750098625,
+    "mae": 2.033557415008545,
+    "mape": 354.99095916748047,
+    "smape": 116.9770359992981,
+    "mase": 1.4311181044865322,
+    "dtw": 1.7512897066771984,
+    "r2": -0.35532890821474705
+  },
+  "predictions_file": "/Users/panhui/Desktop/ph_hw/lanqu_code/TSA-Suite/results/forecasts/final_best_predictions.csv"
+}

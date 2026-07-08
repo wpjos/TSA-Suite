@@ -1,0 +1,16 @@
+{
+  "seq_len": 100,
+  "pred_len": 20,
+  "strategy": "MIMO",
+  "max_depth": 6,
+  "learning_rate": 0.05,
+  "n_estimators": 200,
+  "min_child_weight": 1.0,
+  "reg_alpha": 0.1,
+  "reg_lambda": 0.1,
+  "skip_tune": true,
+  "train_ratio": 0.8,
+  "val_ratio": 0.1,
+  "device": "cpu",
+  "n_jobs": -1
+}

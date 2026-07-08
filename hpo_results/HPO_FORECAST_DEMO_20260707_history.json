@@ -1,0 +1,209 @@
+{
+  "task_id": "HPO_FORECAST_DEMO_20260707",
+  "created_at": "2026-07-07T15:43:43",
+  "description": "非交互模式创建的任务",
+  "params_config": [
+    {
+      "name": "d_model",
+      "type": "int",
+      "lb": 32,
+      "ub": 128
+    },
+    {
+      "name": "nhead",
+      "type": "int",
+      "lb": 1,
+      "ub": 4
+    },
+    {
+      "name": "num_layers",
+      "type": "int",
+      "lb": 1,
+      "ub": 3
+    },
+    {
+      "name": "dropout",
+      "type": "num",
+      "lb": 0.0,
+      "ub": 0.3
+    },
+    {
+      "name": "lag_max",
+      "type": "int",
+      "lb": 4,
+      "ub": 16
+    },
+    {
+      "name": "kan_grid_size",
+      "type": "int",
+      "lb": 2,
+      "ub": 6
+    },
+    {
+      "name": "epochs",
+      "type": "int",
+      "lb": 5,
+      "ub": 20
+    },
+    {
+      "name": "batch_size",
+      "type": "int",
+      "lb": 16,
+      "ub": 64
+    },
+    {
+      "name": "lr",
+      "type": "pow",
+      "lb": 0.0001,
+      "ub": 0.01,
+      "base": 10
+    },
+    {
+      "name": "trend_weight",
+      "type": "num",
+      "lb": 0.0,
+      "ub": 3.0
+    }
+  ],
+  "objectives": [
+    {
+      "name": "mse",
+      "direction": "min"
+    },
+    {
+      "name": "rmse",
+      "direction": "min"
+    },
+    {
+      "name": "mae",
+      "direction": "min"
+    },
+    {
+      "name": "mape",
+      "direction": "min"
+    },
+    {
+      "name": "smape",
+      "direction": "min"
+    },
+    {
+      "name": "mase",
+      "direction": "min"
+    },
+    {
+      "name": "dtw",
+      "direction": "min"
+    },
+    {
+      "name": "r2",
+      "direction": "max"
+    }
+  ],
+  "constraints": [],
+  "records": [
+    {
+      "index": 1,
+      "timestamp": "2026-07-07T15:46:35",
+      "x": {
+        "d_model": 64,
+        "nhead": 2,
+        "num_layers": 1,
+        "dropout": 0.1,
+        "lag_max": 8,
+        "kan_grid_size": 3,
+        "epochs": 10,
+        "batch_size": 32,
+        "lr": 0.001,
+        "trend_weight": 1.0
+      },
+      "y": {
+        "mse": 7.5792365074157715,
+        "rmse": 2.7530413195983403,
+        "mae": 2.1341071128845215,
+        "mape": 431.4492702484131,
+        "smape": 95.17484903335571,
+        "mase": 1.5018800569000352,
+        "dtw": 2.0037020348012446,
+        "r2": -0.6175738485424056
+      }
+    },
+    {
+      "index": 2,
+      "timestamp": "2026-07-07T15:47:07",
+      "x": {
+        "d_model": 125.0,
+        "nhead": 4.0,
+        "num_layers": 2.0,
+        "dropout": 0.1351109280535652,
+        "lag_max": 14.0,
+        "kan_grid_size": 3.0,
+        "epochs": 14.0,
+        "batch_size": 37.0,
+        "lr": 0.006744369003020296,
+        "trend_weight": 0.3974575367846146
+      },
+      "y": {
+        "mse": 6.350472450256348,
+        "rmse": 2.5200143750098625,
+        "mae": 2.033557415008545,
+        "mape": 354.99095916748047,
+        "smape": 116.9770359992981,
+        "mase": 1.4311181044865322,
+        "dtw": 1.7512897066771984,
+        "r2": -0.35532890821474705
+      }
+    },
+    {
+      "index": 3,
+      "timestamp": "2026-07-07T15:47:23",
+      "x": {
+        "d_model": 89.0,
+        "nhead": 2.0,
+        "num_layers": 1.0,
+        "dropout": 0.08852256970993522,
+        "lag_max": 5.0,
+        "kan_grid_size": 6.0,
+        "epochs": 14.0,
+        "batch_size": 22.0,
+        "lr": 0.0004244877391162276,
+        "trend_weight": 1.3826160281721456
+      },
+      "y": {
+        "mse": 9.217402458190918,
+        "rmse": 3.0360175325895136,
+        "mae": 2.1970717906951904,
+        "mape": 485.77985763549805,
+        "smape": 91.2821888923645,
+        "mase": 1.5461915131161024,
+        "dtw": 1.7713977359235287,
+        "r2": -0.9671940932564025
+      }
+    },
+    {
+      "index": 4,
+      "timestamp": "2026-07-07T15:47:39",
+      "x": {
+        "d_model": 72.0,
+        "nhead": 4.0,
+        "num_layers": 1.0,
+        "dropout": 0.22065669860000658,
+        "lag_max": 9.0,
+        "kan_grid_size": 2.0,
+        "epochs": 15.0,
+        "batch_size": 17.0,
+        "lr": 0.0009140021355330873,
+        "trend_weight": 0.31483665110934045
+      },
+      "y": {
+        "mse": 8.93424129486084,
+        "rmse": 2.9890201228598046,
+        "mae": 2.30118465423584,
+        "mape": 427.3916244506836,
+        "smape": 95.96980214118958,
+        "mase": 1.619461046999577,
+        "dtw": 2.001133718341589,
+        "r2": -0.9067613456420343
+      }
+    }
+  ]
+}

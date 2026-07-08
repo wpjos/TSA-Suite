@@ -1,0 +1,131 @@
+{
+  "task_id": "HPO_FORECAST_DEMO_V2_20260707",
+  "created_at": "2026-07-07T17:49:25",
+  "description": "非交互模式创建的任务",
+  "params_config": [
+    {
+      "name": "d_model",
+      "type": "int",
+      "lb": 128,
+      "ub": 512
+    },
+    {
+      "name": "nhead",
+      "type": "int",
+      "lb": 2,
+      "ub": 8
+    },
+    {
+      "name": "num_layers",
+      "type": "int",
+      "lb": 1,
+      "ub": 6
+    },
+    {
+      "name": "dropout",
+      "type": "num",
+      "lb": 0.1,
+      "ub": 0.5
+    },
+    {
+      "name": "lag_max",
+      "type": "int",
+      "lb": 8,
+      "ub": 32
+    },
+    {
+      "name": "kan_grid_size",
+      "type": "int",
+      "lb": 2,
+      "ub": 10
+    },
+    {
+      "name": "epochs",
+      "type": "int",
+      "lb": 15,
+      "ub": 50
+    },
+    {
+      "name": "batch_size",
+      "type": "int",
+      "lb": 64,
+      "ub": 256
+    },
+    {
+      "name": "lr",
+      "type": "pow",
+      "lb": 0.0001,
+      "ub": 0.0008,
+      "base": 10
+    },
+    {
+      "name": "trend_weight",
+      "type": "num",
+      "lb": 0.5,
+      "ub": 4.0
+    }
+  ],
+  "objectives": [
+    {
+      "name": "mse",
+      "direction": "min"
+    },
+    {
+      "name": "rmse",
+      "direction": "min"
+    },
+    {
+      "name": "mae",
+      "direction": "min"
+    },
+    {
+      "name": "mape",
+      "direction": "min"
+    },
+    {
+      "name": "smape",
+      "direction": "min"
+    },
+    {
+      "name": "mase",
+      "direction": "min"
+    },
+    {
+      "name": "dtw",
+      "direction": "min"
+    },
+    {
+      "name": "r2",
+      "direction": "max"
+    }
+  ],
+  "constraints": [],
+  "records": [
+    {
+      "index": 1,
+      "timestamp": "2026-07-07T17:55:36",
+      "x": {
+        "d_model": 64,
+        "nhead": 2,
+        "num_layers": 1,
+        "dropout": 0.1,
+        "lag_max": 8,
+        "kan_grid_size": 3,
+        "epochs": 10,
+        "batch_size": 32,
+        "lr": 0.001,
+        "trend_weight": 1.0
+      },
+      "y": {
+        "mse": 8.027210235595703,
+        "rmse": 2.8332331770603885,
+        "mae": 2.2000582218170166,
+        "mape": 452.5460720062256,
+        "smape": 95.27261853218079,
+        "mase": 1.5482932170634334,
+        "dtw": 1.8856600306928157,
+        "r2": -0.7131811598391586
+      }
+    }
+  ]
+}
