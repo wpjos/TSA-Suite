@@ -1,0 +1,32 @@
+operator:
+  name: "itransformer_forecaster"
+  config:
+    seq_len: 100
+    pred_len: 30
+    d_model: 512
+    nhead: 4
+    num_layers: 2
+    dim_feedforward: 512
+    dropout: 0.2
+    lag_aware: true
+    kan_grid_size: 5
+    target_idx: -1
+    epochs: 30
+    batch_size: 128
+    lr: 0.0002
+    weight_decay: 0.00001
+    early_stop_patience: 12
+    train_ratio: 0.7
+    val_ratio: 0.15
+    device: cuda
+
+preprocessing:
+  time_col: "datatime"
+  max_gap: 5.0
+  target_col: "diya_qibao_shuiwei_youxuanzhi"
+  chunk_size: 100000
+  ema_alpha: 0.3
+
+paths:
+  preprocessed_dir: "preprocessed_tsa"
+  model_save_dir: "saved_models/tsa_itransformer"
