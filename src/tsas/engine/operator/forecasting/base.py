@@ -129,6 +129,17 @@ class BaseForecaster(
                              f"当前维度 {x_arr.ndim}")
         return x_arr
 
+    def set_chunk_ids(self, chunk_ids: np.ndarray | None) -> None:
+        """设置时间连续段标识，用于训练阶段避免窗口跨越时间断层。
+
+        默认实现为空操作。支持 chunk_ids 的子类（如 ``ITransformerForecaster``）
+        应覆写此方法；不支持的子类（如树模型）继承空操作即可。
+
+        Args:
+            chunk_ids: 与 ``fit(x, y)`` 中 ``x`` 行对齐的一维数组，``None`` 表示清除。
+        """
+        pass
+
     def _fit(self, x: NumericData, y: NumericData, *, params: FP | None) -> None:
         """训练模板方法。
 

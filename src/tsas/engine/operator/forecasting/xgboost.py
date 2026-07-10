@@ -134,6 +134,14 @@ class XGBoostForecaster(BaseForecaster[ForecastExtraOutput,
         self._num_features: int | None = None
         self._num_targets: int | None = None
 
+    def set_chunk_ids(self, chunk_ids: np.ndarray | None) -> None:
+        """XGBoost 算子当前不支持 chunk_ids，传入时忽略并警告。"""
+        if chunk_ids is not None:
+            logger.warning(
+                f"[{self.oid}] xgboost_forecaster 不支持 chunk_ids，"
+                "传入的 chunk_ids 将被忽略。"
+            )
+
     def _is_mimo(self) -> bool:
         """当前是否使用 MIMO 策略。"""
         return self.config.strategy == 'MIMO'

@@ -228,6 +228,19 @@ mkdir -p "<输出根目录>/num_fc_trainning_<时间戳>"
   --save <输出目录>/model
 ```
 
+如果前置预处理技能（如 `ts-preprocessing-for-tsas-cli`）提供了 `chunk_ids.csv`，可以追加 `--chunk-ids` 参数，避免 `itransformer_forecaster` 的训练窗口跨越时间断层：
+
+```bash
+<tsa-suite-env-python> -m tsas.engine.operator.cli forecasting fit \
+  --input <训练数据.csv> \
+  --target <目标列名> \
+  --config <输出目录>/forecasting_config.yaml \
+  --save <输出目录>/model \
+  --chunk-ids <chunk_ids.csv>
+```
+
+> `chunk_ids.csv` 为单列表、无表头，每行一个整数，行数必须与 `<训练数据.csv>` 完全一致。树模型（LightGBM / XGBoost）会忽略该参数并打印警告。
+
 训练成功后，`<输出目录>/model/` 目录将包含保存的模型参数。
 
 > ⚠️ **禁止**自行编写 Python 代码来实现模型训练逻辑。必须且只能通过上述 CLI 命令调用。
@@ -373,4 +386,5 @@ operators:
 5. 推理前确认数据文件路径正确且可读；推理窗口的行数应等于算子配置的 `seq_len`。
 6. 评价算子的 `truth_columns` 和 `predict_columns` 必须与评价数据中的实际列名完全匹配。
 7. `fastdtw` 为可选依赖；未安装时 DTW 指标会自动回退为 MAE。
-8. 详细 TSAS-CLI API 参考请参阅 [references/api_reference.md](references/api_reference.md)。
+8. 若前置预处理技能 `ts-preprocessing-for-tsas-cli` 生成了 `chunk_ids.csv`，训练时建议通过 `--chunk-ids` 传入，使 `itransformer_forecaster` 避免窗口跨越时间断层。
+9. 详细 TSAS-CLI API 参考请参阅 [references/api_reference.md](references/api_reference.md)。

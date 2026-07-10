@@ -95,7 +95,8 @@ python -m tsas.engine.operator.cli forecasting fit \
   --input train.csv \
   --target target \
   --config forecasting_config.yaml \
-  --save model_dir/
+  --save model_dir/ \
+  --chunk-ids chunk_ids.csv
 ```
 
 参数说明：
@@ -106,6 +107,7 @@ python -m tsas.engine.operator.cli forecasting fit \
 | `--target` / `-t` | 是 | 目标变量列名 |
 | `--config` / `-c` | 是 | 算子配置文件路径 |
 | `--save` | 否 | 保存训练后模型的目录路径 |
+| `--chunk-ids` | 否 | chunk_ids 文件路径，CSV 单列表，无表头；`itransformer_forecaster` 使用以避免窗口跨断层，树模型忽略并警告 |
 
 训练完成后，`--save` 指定的目录下会保存：
 

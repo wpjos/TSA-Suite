@@ -3,8 +3,8 @@
 """
 Data preprocessing pipeline extracted from train/train_new.py.
 
-This script produces the exact input expected by TSA-Suite's iTransformer
-forecaster:
+This script produces the exact input expected by TSA-Suite's forecasting
+operators:
 
     from tsas.engine.operator.forecasting.itransformer import ITransformerForecaster
     forecaster = ITransformerForecaster(config=...)
@@ -13,7 +13,7 @@ forecaster:
 
 where x has shape (timesteps, num_features), y has shape (timesteps, 1),
 and chunk_ids has shape (timesteps,). Both x and y are **NOT** normalized:
-the ITransformerForecaster normalizes them internally with StandardScaler.
+forecasting operators normalize them internally as needed.
 
 Outputs (all aligned by row):
     - x.npy
@@ -26,6 +26,7 @@ through a single ``PreprocessPipeline`` class.
 """
 
 import argparse
+import json
 import os
 from dataclasses import dataclass, field
 from typing import List, Tuple
@@ -41,7 +42,7 @@ import pandas as pd
 
 @dataclass
 class PreprocessConfig:
-    """Preprocessing hyper-parameters (mirrors train_new.py defaults)."""
+    """Preprocessing hyper-parameters."""
 
     data_file: str
     time_col: str = "datatime"
@@ -50,10 +51,13 @@ class PreprocessConfig:
     chunk_size: int = 100000
     ema_alpha: float = 0.3
     output_dir: str = "preprocessed_tsa"
+    # 用户显式指定的特征列；如果为空，则回退到 expert_features
+    feature_cols: List[str] = field(default_factory=list, repr=False)
+    # 向后兼容：旧的默认专家特征列表
     expert_features: List[str] = field(default_factory=list, repr=False)
 
     def __post_init__(self):
-        if not self.expert_features:
+        if not self.feature_cols and not self.expert_features:
             self.expert_features = [
                 "ningjie_shuiliuliang_youxuanzhi",
                 "gaoya_geishuiliuliang_youxuanzhi",
@@ -74,10 +78,24 @@ class PreprocessConfig:
 # ---------------------------------------------------------------------------
 
 def resolve_feature_columns(
-    data_path: str, target_col: str, expert_features: List[str]
+    data_path: str,
+    target_col: str,
+    feature_cols: List[str] | None = None,
+    expert_features: List[str] | None = None,
 ) -> Tuple[List[str], List[str]]:
     """
     Read the CSV header and return the feature columns that actually exist.
+
+    Parameters
+    ----------
+    data_path : str
+        Path to CSV file.
+    target_col : str
+        Target column name.
+    feature_cols : list[str] | None
+        User-specified feature columns. Takes precedence if non-empty.
+    expert_features : list[str] | None
+        Fallback feature list (backward compatibility).
 
     Returns
     -------
@@ -93,11 +111,23 @@ def resolve_feature_columns(
     if target_col not in all_columns:
         raise ValueError(f"Missing target column '{target_col}' in {data_path}")
 
-    feature_cols = [col for col in expert_features if col in all_columns]
-    if target_col not in feature_cols:
-        feature_cols.append(target_col)
+    source_cols = feature_cols if feature_cols else (expert_features or [target_col])
+    selected_cols = [col for col in source_cols if col in all_columns]
 
-    return feature_cols, feature_cols.copy()
+    if target_col not in selected_cols:
+        selected_cols.append(target_col)
+
+    if not selected_cols:
+        raise ValueError(
+            f"No valid feature columns found in {data_path}. "
+            f"Please check feature_cols / expert_features."
+        )
+
+    missing = [col for col in source_cols if col not in all_columns]
+    if missing:
+        print(f"Warning: requested columns not found in CSV and will be skipped: {missing}")
+
+    return selected_cols, selected_cols.copy()
 
 
 # ---------------------------------------------------------------------------
@@ -266,7 +296,7 @@ def extract_target(
 # ---------------------------------------------------------------------------
 
 class PreprocessPipeline:
-    """End-to-end preprocessing pipeline for the TSA-Suite iTransformer.
+    """End-to-end preprocessing pipeline for TSA-Suite forecasters.
 
     Outputs (all aligned by row):
         - x.npy: input features, shape (timesteps, num_features)
@@ -286,7 +316,10 @@ class PreprocessPipeline:
 
         # Step 1
         self.feature_cols, cols_to_read = resolve_feature_columns(
-            cfg.data_file, cfg.target_col, cfg.expert_features
+            cfg.data_file,
+            cfg.target_col,
+            feature_cols=cfg.feature_cols if cfg.feature_cols else None,
+            expert_features=cfg.expert_features if cfg.expert_features else None,
         )
 
         # If time_col is not part of features, still read it for gap detection
@@ -340,6 +373,7 @@ class PreprocessPipeline:
             "feature_cols": self.feature_cols,
             "target_col": cfg.target_col,
             "target_idx": self.target_idx,
+            "time_col": cfg.time_col,
             "n_samples": x.shape[0],
             "n_features": x.shape[1],
             "chunk_ids_path": chunk_ids_path,
@@ -358,9 +392,16 @@ class PreprocessPipeline:
 # CLI
 # ---------------------------------------------------------------------------
 
+def _parse_comma_list(value: str) -> List[str]:
+    """Parse a comma-separated string into a list of stripped strings."""
+    if not value:
+        return []
+    return [item.strip() for item in value.split(",") if item.strip()]
+
+
 def main():
     parser = argparse.ArgumentParser(
-        description="Preprocess raw CSV for TSA-Suite ITransformerForecaster."
+        description="Preprocess raw CSV for TSA-Suite forecasting operators."
     )
     parser.add_argument(
         "--data_file",
@@ -385,6 +426,12 @@ def main():
         type=str,
         default="diya_qibao_shuiwei_youxuanzhi",
         help="Target column name.",
+    )
+    parser.add_argument(
+        "--feature_cols",
+        type=str,
+        default="",
+        help="Comma-separated list of feature columns to use. If empty, falls back to expert_features defaults.",
     )
     parser.add_argument(
         "--chunk_size",
@@ -412,6 +459,7 @@ def main():
         time_col=args.time_col,
         max_gap=args.max_gap,
         target_col=args.target_col,
+        feature_cols=_parse_comma_list(args.feature_cols),
         chunk_size=args.chunk_size,
         ema_alpha=args.ema_alpha,
         output_dir=args.output_dir,

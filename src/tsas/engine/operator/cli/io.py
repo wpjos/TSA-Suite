@@ -26,6 +26,7 @@ import os
 import sys
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 __all__ = [
@@ -33,6 +34,7 @@ __all__ = [
     'save_data',
     'save_json',
     'ensure_encoding',
+    'load_chunk_ids',
 ]
 
 # 支持的数据文件后缀 → 加载/保存函数的映射键
@@ -78,6 +80,32 @@ def load_data(path: str | Path) -> pd.DataFrame:
             f"不支持的文件格式 '{suffix}'。"
             f"当前支持的格式: {sorted(_SUPPORTED_EXTENSIONS)}"
         )
+
+
+def load_chunk_ids(path: str | Path) -> np.ndarray:
+    """加载 chunk_ids 文件。
+
+    chunk_ids 文件为 CSV 格式，单列表，无表头，每行一个整数 chunk 编号。
+
+    Args:
+        path (str | Path): chunk_ids 文件路径
+
+    Returns:
+        np.ndarray: 一维整型数组
+
+    Raises:
+        FileNotFoundError: 文件不存在时
+        ValueError: 文件内容不是单列时
+    """
+    path = Path(path)
+    if not path.exists():
+        raise FileNotFoundError(f"chunk_ids 文件不存在: {path}")
+
+    df = pd.read_csv(path, header=None)
+    if df.shape[1] != 1:
+        raise ValueError(f"chunk_ids 文件必须是单列，当前列数为 {df.shape[1]}")
+
+    return df.iloc[:, 0].to_numpy()
 
 
 def save_data(df: pd.DataFrame, path: str | Path) -> None:
