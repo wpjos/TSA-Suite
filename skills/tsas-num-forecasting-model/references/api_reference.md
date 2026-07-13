@@ -239,7 +239,7 @@ python -m tsas.engine.operator.cli forecasting run \
 - 来源：`src/tsas/engine/operator/evaluation/forecasting_metrics.py`
 - 算子名称：`forecasting_metrics`
 - 输入：`(y_true, y_pred)` 元组，支持 `np.ndarray` 与 `pd.DataFrame`，内部统一拉平为 1-D
-- 输出：`ForecastingMetricResult`，包含 MSE、RMSE、MAE、MAPE、SMAPE、MASE、DTW、R²
+- 输出：`ForecastingMetricResult`，包含 MAE、RMSE、MAPE、DTW
 
 配置文件示例 `eval_config.yaml`：
 
@@ -250,7 +250,6 @@ operators:
     truth_columns: [ "y_true" ]
     predict_columns: [ "y_pred" ]
     config:
-      naive_error: 0.01
       epsilon: 1e-8
       max_dtw_len: 2000
 ```
@@ -263,10 +262,9 @@ operators:
 | `alias` | 否 | 结果输出中的别名 |
 | `truth_columns` | 是 | 真实值列名列表 |
 | `predict_columns` | 是 | 预测值列名列表 |
-| `config.main_scores` | 否 | 默认暴露全部 8 项指标；可覆写以选择 HPO 优化目标 |
+| `config.main_scores` | 否 | 默认暴露全部 4 项指标；可覆写以选择 HPO 优化目标 |
 | `config.epsilon` | 否 | 零值保护常数，默认 `1e-8` |
 | `config.max_dtw_len` | 否 | DTW 最大采样长度，默认 `2000` |
-| `config.naive_error` | 否 | 随机游走基线误差，用于 MASE；未提供时 MASE 返回 `nan` |
 
 执行评价：
 
@@ -284,24 +282,16 @@ python -m tsas.engine.operator.cli evaluation run \
   "results": {
     "forecast_metrics": {
       "result": {
-        "mse": 0.1,
-        "rmse": 0.316,
         "mae": 0.25,
+        "rmse": 0.316,
         "mape": 5.2,
-        "smape": 5.1,
-        "mase": 0.8,
-        "dtw": 0.3,
-        "r2": 0.95
+        "dtw": 0.3
       },
       "main_scores": {
-        "mse": 0.1,
-        "rmse": 0.316,
         "mae": 0.25,
+        "rmse": 0.316,
         "mape": 5.2,
-        "smape": 5.1,
-        "mase": 0.8,
-        "dtw": 0.3,
-        "r2": 0.95
+        "dtw": 0.3
       }
     }
   }
