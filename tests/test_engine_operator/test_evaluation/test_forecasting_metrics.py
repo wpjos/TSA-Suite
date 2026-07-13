@@ -4,10 +4,10 @@
 时序预测评价指标算子测试
 
 测试覆盖:
-    1. 基本功能: run() 返回完整指标集 (MSE/RMSE/MAE/MAPE/SMAPE/MASE/DTW/R²)
+    1. 基本功能: run() 返回指标集 (MAE/RMSE/MAPE/DTW)
     2. scores() 方法: 按 main_scores 提取命名标量
-    3. 配置覆盖: epsilon、naive_error、max_dtw_len
-    4. 边界条件: 完美预测、常数预测、零值保护、空样本、长度不一致
+    3. 配置覆盖: epsilon、max_dtw_len
+    4. 边界条件: 完美预测、空样本、长度不一致
     5. 类型兼容: ndarray、list、DataFrame 输入
 
 测试约束:
@@ -38,7 +38,7 @@ class TestForecastingMetricsBasic:
         测试目的: run() 返回完整指标集
         输入: y_true=[1,2,3,4,5], y_pred=[1.1,1.9,3.2,3.8,5.1]
         输出: ForecastingMetricResult
-        预期: 返回包含 8 项指标的结构化结果
+        预期: 返回包含 4 项指标的结构化结果
         """
         y_true = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
         y_pred = np.array([1.1, 1.9, 3.2, 3.8, 5.1])
@@ -47,21 +47,17 @@ class TestForecastingMetricsBasic:
         result = op.run((y_true, y_pred))
 
         assert isinstance(result, ForecastingMetricResult)
-        assert hasattr(result, 'mse')
-        assert hasattr(result, 'rmse')
         assert hasattr(result, 'mae')
+        assert hasattr(result, 'rmse')
         assert hasattr(result, 'mape')
-        assert hasattr(result, 'smape')
-        assert hasattr(result, 'mase')
         assert hasattr(result, 'dtw')
-        assert hasattr(result, 'r2')
 
     def test_run_with_perfect_prediction(self):
         """
-        测试目的: 完美预测时误差指标为 0，R² 为 1
+        测试目的: 完美预测时误差指标为 0
         输入: y_true=[1,2,3,4,5], y_pred=[1,2,3,4,5]（完全一致）
         输出: ForecastingMetricResult
-        预期: mse=rmse=mae=mape=smape=0, r2=1
+        预期: mae=rmse=mape=0
         """
         y_true = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
         y_pred = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
@@ -69,34 +65,26 @@ class TestForecastingMetricsBasic:
         op = ForecastingMetrics()
         result = op.run((y_true, y_pred))
 
-        assert result.mse == pytest.approx(0.0, abs=1e-10)
         assert result.rmse == pytest.approx(0.0, abs=1e-10)
         assert result.mae == pytest.approx(0.0, abs=1e-10)
         assert result.mape == pytest.approx(0.0, abs=1e-10)
-        assert result.smape == pytest.approx(0.0, abs=1e-10)
-        assert result.r2 == pytest.approx(1.0, abs=1e-10)
 
     def test_run_with_biased_prediction(self):
         """
         测试目的: 有偏差预测时各指标为合理正值
         输入: y_true=[1,2,3,4,5], y_pred=[1.1,1.9,3.2,3.8,5.1]
         输出: ForecastingMetricResult
-        预期: 误差指标 > 0，R² 在 (0, 1) 之间
+        预期: 误差指标 > 0
         """
         y_true = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
         y_pred = np.array([1.1, 1.9, 3.2, 3.8, 5.1])
 
-        cfg = ForecastingMetricConfig(naive_error=1.0)
-        op = ForecastingMetrics(config=cfg)
+        op = ForecastingMetrics(config=ForecastingMetricConfig())
         result = op.run((y_true, y_pred))
 
-        assert result.mse > 0
         assert result.rmse > 0
         assert result.mae > 0
         assert result.mape > 0
-        assert result.smape > 0
-        assert result.mase > 0
-        assert 0.0 < result.r2 < 1.0
 
     def test_name(self):
         """
@@ -117,19 +105,18 @@ class TestForecastingMetricsScores:
     def test_scores_returns_dict(self):
         """
         测试目的: scores() 返回按 main_scores 映射的字典
-        输入: 默认配置 main_scores（8 项指标）
+        输入: 默认配置 main_scores（4 项指标）
         输出: dict[str, float]
-        预期: 返回包含全部 8 项指标的字典
+        预期: 返回包含全部 4 项指标的字典
         """
         y_true = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
         y_pred = np.array([1.1, 1.9, 3.2, 3.8, 5.1])
 
-        cfg = ForecastingMetricConfig(naive_error=1.0)
-        op = ForecastingMetrics(config=cfg)
+        op = ForecastingMetrics(config=ForecastingMetricConfig())
         scores = op.scores((y_true, y_pred))
 
         assert scores is not None
-        assert set(scores.keys()) == {"mse", "rmse", "mae", "mape", "smape", "mase", "dtw", "r2"}
+        assert set(scores.keys()) == {"mae", "rmse", "mape", "dtw"}
         for v in scores.values():
             assert isinstance(v, float)
 
@@ -143,15 +130,14 @@ class TestForecastingMetricsScores:
         y_true = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
         y_pred = np.array([1.1, 1.9, 3.2, 3.8, 5.1])
 
-        cfg = ForecastingMetricConfig(naive_error=1.0)
-        op = ForecastingMetrics(config=cfg)
+        op = ForecastingMetrics(config=ForecastingMetricConfig())
         result = op.run((y_true, y_pred))
         scores = op.scores((y_true, y_pred))
 
         assert scores["rmse"] == pytest.approx(result.rmse, rel=1e-10)
         assert scores["mae"] == pytest.approx(result.mae, rel=1e-10)
         assert scores["mape"] == pytest.approx(result.mape, rel=1e-10)
-        assert scores["r2"] == pytest.approx(result.r2, rel=1e-10)
+        assert scores["dtw"] == pytest.approx(result.dtw, rel=1e-10)
 
     def test_scores_with_custom_main_scores(self):
         """
@@ -165,7 +151,6 @@ class TestForecastingMetricsScores:
 
         cfg = ForecastingMetricConfig(
             main_scores={"rmse": "rmse", "mae": "mae"},
-            naive_error=1.0,
         )
         op = ForecastingMetrics(config=cfg)
         scores = op.scores((y_true, y_pred))
@@ -212,38 +197,6 @@ class TestForecastingMetricsConfig:
 
         assert np.isfinite(result.mape)
 
-    def test_naive_error_for_mase(self):
-        """
-        测试目的: naive_error 参数用于 MASE 计算
-        输入: naive_error=1.0
-        输出: ForecastingMetricResult
-        预期: mase == mae / naive_error
-        """
-        y_true = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
-        y_pred = np.array([1.1, 1.9, 3.2, 3.8, 5.1])
-
-        cfg = ForecastingMetricConfig(naive_error=1.0)
-        op = ForecastingMetrics(config=cfg)
-        result = op.run((y_true, y_pred))
-
-        assert result.mase == pytest.approx(result.mae / 1.0, rel=1e-10)
-
-    def test_naive_error_zero(self):
-        """
-        测试目的: naive_error=0 时 MASE 为 nan（避免除零）
-        输入: naive_error=0
-        输出: ForecastingMetricResult
-        预期: mase 为 nan
-        """
-        y_true = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
-        y_pred = np.array([1.1, 1.9, 3.2, 3.8, 5.1])
-
-        cfg = ForecastingMetricConfig(naive_error=0.0)
-        op = ForecastingMetrics(config=cfg)
-        result = op.run((y_true, y_pred))
-
-        assert np.isnan(result.mase)
-
     def test_max_dtw_len_config(self):
         """
         测试目的: max_dtw_len 配置生效
@@ -259,7 +212,7 @@ class TestForecastingMetricsConfig:
         y_true = np.tile(np.array([1.0, 2.0, 3.0, 4.0, 5.0]), 30)
         y_pred = y_true + 0.1
 
-        cfg = ForecastingMetricConfig(naive_error=1.0, max_dtw_len=100)
+        cfg = ForecastingMetricConfig(max_dtw_len=100)
         op = ForecastingMetrics(config=cfg)
         result = op.run((y_true, y_pred))
 
@@ -301,21 +254,6 @@ class TestForecastingMetricsEdgeCases:
         with pytest.raises(ValueError, match="输入数组为空"):
             op.run((y_true, y_pred))
 
-    def test_constant_prediction_r2_zero(self):
-        """
-        测试目的: 常数预测时 R² 接近 0
-        输入: y_true=[1,2,3,4,5], y_pred 全为均值
-        输出: ForecastingMetricResult
-        预期: r2 ≈ 0
-        """
-        y_true = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
-        y_pred = np.full_like(y_true, np.mean(y_true))
-
-        op = ForecastingMetrics()
-        result = op.run((y_true, y_pred))
-
-        assert result.r2 == pytest.approx(0.0, abs=1e-10)
-
     def test_single_sample(self):
         """
         测试目的: 单样本场景
@@ -326,12 +264,12 @@ class TestForecastingMetricsEdgeCases:
         y_true = np.array([1.0])
         y_pred = np.array([1.1])
 
-        cfg = ForecastingMetricConfig(naive_error=1.0)
+        cfg = ForecastingMetricConfig()
         op = ForecastingMetrics(config=cfg)
         result = op.run((y_true, y_pred))
 
-        assert np.isfinite(result.mse)
         assert np.isfinite(result.mae)
+        assert np.isfinite(result.rmse)
         assert np.isfinite(result.mape)
 
     def test_all_zero_true(self):
@@ -348,7 +286,6 @@ class TestForecastingMetricsEdgeCases:
         result = op.run((y_true, y_pred))
 
         assert np.isfinite(result.mape)
-        assert np.isfinite(result.smape)
 
 
 # ============================================================================
@@ -422,12 +359,12 @@ class TestForecastingMetricsInputTypes:
 class TestForecastingMetricsFormula:
     """指标公式验证测试"""
 
-    def test_mse_rmse_formula(self):
+    def test_rmse_formula(self):
         """
-        测试目的: 验证 MSE 和 RMSE 公式
+        测试目的: 验证 RMSE 公式
         输入: y_true=[1,2,3], y_pred=[1.1,1.9,3.2]
         输出: ForecastingMetricResult
-        预期: mse = mean(error^2), rmse = sqrt(mse)
+        预期: rmse = sqrt(mean(error^2))
         """
         y_true = np.array([1.0, 2.0, 3.0])
         y_pred = np.array([1.1, 1.9, 3.2])
@@ -435,10 +372,7 @@ class TestForecastingMetricsFormula:
         op = ForecastingMetrics()
         result = op.run((y_true, y_pred))
 
-        expected_mse = np.mean((y_pred - y_true) ** 2)
-        expected_rmse = np.sqrt(expected_mse)
-
-        assert result.mse == pytest.approx(expected_mse, rel=1e-10)
+        expected_rmse = np.sqrt(np.mean((y_pred - y_true) ** 2))
         assert result.rmse == pytest.approx(expected_rmse, rel=1e-10)
 
     def test_mae_formula(self):
@@ -473,25 +407,6 @@ class TestForecastingMetricsFormula:
         epsilon = 1e-8
         expected_mape = np.mean(np.abs((y_true - y_pred) / (np.abs(y_true) + epsilon))) * 100
         assert result.mape == pytest.approx(expected_mape, rel=1e-10)
-
-    def test_r2_formula(self):
-        """
-        测试目的: 验证 R² 公式
-        输入: y_true=[1,2,3,4,5], y_pred=[1.1,1.9,3.2,3.8,5.1]
-        输出: ForecastingMetricResult
-        预期: r2 = 1 - SS_res / SS_tot
-        """
-        y_true = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
-        y_pred = np.array([1.1, 1.9, 3.2, 3.8, 5.1])
-
-        op = ForecastingMetrics()
-        result = op.run((y_true, y_pred))
-
-        ss_res = np.sum((y_pred - y_true) ** 2)
-        ss_tot = np.sum((y_true - np.mean(y_true)) ** 2)
-        expected_r2 = 1.0 - ss_res / ss_tot
-
-        assert result.r2 == pytest.approx(expected_r2, rel=1e-10)
 
 
 # ============================================================================

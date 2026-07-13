@@ -3,8 +3,8 @@
 """
 时序预测评价指标算子
 
-提供工业时序预测中常用的 8 项评价指标：
-MSE、RMSE、MAE、MAPE、SMAPE、MASE、DTW、R²。
+提供工业时序预测中常用的 4 项评价指标：
+MAE、RMSE、MAPE、DTW。
 
 输入为 ``(y_true, y_pred)`` 元组，支持 ndarray 与 DataFrame，
 内部统一拉平后计算（保持与 HBHD_predict_v1.5 的 ``calculate_metrics`` 一致）。
@@ -16,6 +16,7 @@ from typing import Dict, Optional, Tuple
 import numpy as np
 import pandas as pd
 from pydantic import BaseModel, ConfigDict, Field
+from sklearn.metrics import mean_squared_error
 
 from tsas.engine.operator.evaluation.base import BaseMetricConfig, BaseMetricOperator
 
@@ -38,36 +39,26 @@ class ForecastingMetricResult(BaseModel):
 
     model_config = ConfigDict(frozen=True)
 
-    mse: float
-    rmse: float
     mae: float
+    rmse: float
     mape: float
-    smape: float
-    mase: float
     dtw: float
-    r2: float
 
 
 class ForecastingMetricConfig(BaseMetricConfig):
     """时序预测指标算子配置。
 
-    ``main_scores`` 默认暴露全部 8 项指标，用户可覆写以选择 HPO 优化目标。
-    ``naive_error`` 用于计算 MASE，未提供时 MASE 返回 ``nan``。
+    ``main_scores`` 默认暴露全部 4 项指标，用户可覆写以选择 HPO 优化目标。
     """
 
     main_scores: Optional[Dict[str, str]] = {
-        "mse": "mse",
-        "rmse": "rmse",
         "mae": "mae",
+        "rmse": "rmse",
         "mape": "mape",
-        "smape": "smape",
-        "mase": "mase",
         "dtw": "dtw",
-        "r2": "r2",
     }
     epsilon: float = Field(default=1e-8, ge=1e-12, le=1.0, description="零值保护常数")
     max_dtw_len: int = Field(default=2000, ge=100, le=100000, description="DTW 最大采样长度")
-    naive_error: Optional[float] = Field(default=None, ge=0.0, description="训练集随机游走基线误差，用于 MASE")
 
 
 class ForecastingMetrics(
@@ -114,43 +105,21 @@ class ForecastingMetrics(
             raise ValueError("输入数组为空")
 
         cfg = self.config
-        eps = cfg.epsilon
+        epsilon = cfg.epsilon
 
         # 基础误差
-        errors = y_pred - y_true
-        mse = float(np.mean(errors ** 2))
-        rmse = float(np.sqrt(mse))
-        mae = float(np.mean(np.abs(errors)))
-
-        # 百分比误差
-        mape = float(np.mean(np.abs(errors / (np.abs(y_true) + eps))) * 100)
-        smape = float(
-            np.mean(2 * np.abs(errors) / (np.abs(y_true) + np.abs(y_pred) + eps)) * 100
-        )
-
-        # MASE
-        if cfg.naive_error is not None and cfg.naive_error > eps:
-            mase = float(mae / cfg.naive_error)
-        else:
-            mase = float(np.nan)
-
-        # R²
-        ss_res = float(np.sum(errors ** 2))
-        ss_tot = float(np.sum((y_true - np.mean(y_true)) ** 2))
-        r2 = float(1.0 - ss_res / ss_tot) if ss_tot > eps else float(np.nan)
+        rmse = np.sqrt(mean_squared_error(y_true, y_pred))
+        mae = np.mean(np.abs(y_true - y_pred))
+        mape = np.mean(np.abs((y_true - y_pred) / (np.abs(y_true) + epsilon))) * 100
 
         # DTW（归一化），fastdtw 为可选依赖
         dtw = self._compute_dtw(y_true, y_pred, cfg.max_dtw_len)
 
         return ForecastingMetricResult(
-            mse=mse,
-            rmse=rmse,
             mae=mae,
+            rmse=rmse,
             mape=mape,
-            smape=smape,
-            mase=mase,
             dtw=dtw,
-            r2=r2,
         )
 
     def _compute_dtw(self, y_true: np.ndarray, y_pred: np.ndarray, max_len: int) -> float:

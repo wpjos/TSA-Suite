@@ -62,7 +62,7 @@ source <tsa-suite-env>/bin/activate
 |------|------------------|---------|
 | 模型训练 | `forecasting fit` | 禁止自行编写训练代码 |
 | 时序预测/推理 | `forecasting run` | 禁止自行编写预测代码 |
-| 评价指标计算 | `evaluation run` | 禁止自行编写 MSE/MAE/RMSE/MAPE/DTW/R² 等指标计算代码 |
+| 评价指标计算 | `evaluation run` | 禁止自行编写 MAE/RMSE/MAPE/DTW 等指标计算代码 |
 
 **唯一的例外**：生成 YAML/JSON 配置文件、读取和展示 CLI 输出结果、生成实验总结报告等辅助性操作，可以正常使用文件读写工具。
 
@@ -291,7 +291,7 @@ mkdir -p "<输出根目录>/num_fc_trainning_<时间戳>"
 
 #### 8.1 确定评价策略
 
-时序预测评价统一使用 `forecasting_metrics` 算子，计算 MSE、RMSE、MAE、MAPE、SMAPE、MASE、DTW、R² 八项指标。
+时序预测评价统一使用 `forecasting_metrics` 算子，计算 MAE、RMSE、MAPE、DTW 四项指标。
 
 评价输入必须是一个包含真实值和预测值列的 CSV 文件。该文件需要**预先对齐**：真实值与预测值的元素数量必须相同。
 
@@ -306,7 +306,6 @@ operators:
     truth_columns: [ "y_true" ]
     predict_columns: [ "y_pred" ]
     config:
-      naive_error: 0.01
       epsilon: 1e-8
       max_dtw_len: 2000
 ```
@@ -314,7 +313,6 @@ operators:
 其中：
 - `truth_columns`：真实值列名
 - `predict_columns`：预测值列名
-- `naive_error`：训练集随机游走基线误差，用于计算 MASE；未提供时 MASE 返回 `nan`
 - `epsilon`：零值保护常数
 - `max_dtw_len`：DTW 最大采样长度
 
@@ -324,12 +322,12 @@ operators:
 
 ```bash
 <tsa-suite-env-python> -m tsas.engine.operator.cli evaluation run \
-  --input <test_truth.csv> \
+  --input <eval_aligned.csv> \
   --config <输出目录>/eval_config.yaml \
   --output <输出目录>/eval_result.json
 ```
 
-> **绝对禁止**自行编写 Python 代码来计算 MSE、RMSE、MAE、MAPE、SMAPE、MASE、DTW、R² 或任何其他评价指标。必须且只能通过上述 CLI 命令调用 `evaluation` 模块的算子来完成。如果 CLI 调用失败，应报告错误并停止，不得降级为自行实现。
+> **绝对禁止**自行编写 Python 代码来计算 MAE、RMSE、MAPE、DTW 或任何其他评价指标。必须且只能通过上述 CLI 命令调用 `evaluation` 模块的算子来完成。如果 CLI 调用失败，应报告错误并停止，不得降级为自行实现。
 
 ### 第 9 步：生成实验总结
 
