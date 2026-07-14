@@ -17,6 +17,7 @@ TSA-Suite 时序预测推理与评估脚本。
 """
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
@@ -62,6 +63,38 @@ def _align_to_chunk_end(chunk_ids: np.ndarray, target: int, n_total: int) -> int
         return n_total
     cid = chunk_ids[target]
     return int(np.where(chunk_ids == cid)[0][-1]) + 1
+
+
+def _chunk_based_split(
+    chunk_ids: np.ndarray, train_ratio: float, val_ratio: float
+) -> tuple[int, int]:
+    """按 chunk 边界划分训练/验证/测试集，返回训练结束行与验证结束行。
+
+    保证测试集至少包含若干完整 chunk；若 chunk 数量过少导致无测试集，
+    调用方应回退到行级划分。
+    """
+    unique_cids = np.unique(chunk_ids)
+    n_chunks = len(unique_cids)
+
+    n_train_chunks = max(1, int(np.floor(n_chunks * train_ratio)))
+    n_val_chunks = max(1, int(np.floor(n_chunks * val_ratio)))
+
+    # 优先保证至少有一个测试 chunk
+    if n_train_chunks + n_val_chunks >= n_chunks:
+        n_val_chunks = max(0, n_chunks - n_train_chunks - 1)
+
+    train_cids = unique_cids[:n_train_chunks]
+    val_cids = unique_cids[n_train_chunks : n_train_chunks + n_val_chunks]
+
+    train_end = (
+        int(np.where(np.isin(chunk_ids, train_cids))[0][-1]) + 1
+        if len(train_cids) else 0
+    )
+    val_end = (
+        int(np.where(np.isin(chunk_ids, val_cids))[0][-1]) + 1
+        if len(val_cids) else train_end
+    )
+    return train_end, val_end
 
 
 def _get_valid_indices(chunk_ids: np.ndarray, input_len: int, output_len: int) -> np.ndarray:
@@ -175,24 +208,35 @@ def run_inference(
 
     n_total = len(x)
 
-    # 按时间边界确定测试集（训练 + 验证之后的数据）
+    # 按 chunk 边界确定测试集，避免窗口跨越时间断层
     if chunk_ids is not None and hasattr(forecaster, "set_chunk_ids"):
-        train_end = _align_to_chunk_end(chunk_ids, int(n_total * cfg.train_ratio), n_total)
-        val_end = _align_to_chunk_end(
-            chunk_ids, train_end + int(n_total * cfg.val_ratio), n_total
-        )
-        test_chunk_ids = chunk_ids[val_end:]
-        test_indices = _get_valid_indices(test_chunk_ids, cfg.seq_len, cfg.pred_len) + val_end
+        train_end, val_end = _chunk_based_split(chunk_ids, cfg.train_ratio, cfg.val_ratio)
+        if val_end >= n_total:
+            # chunk 数量太少，回退到行级划分以保留测试集
+            test_start = int(n_total * (cfg.train_ratio + cfg.val_ratio))
+            test_indices = np.arange(
+                test_start, n_total - cfg.seq_len - cfg.pred_len + 1
+            )
+            n_test_chunks = int(len(np.unique(chunk_ids[test_start:])))
+        else:
+            test_chunk_ids = chunk_ids[val_end:]
+            test_indices = _get_valid_indices(test_chunk_ids, cfg.seq_len, cfg.pred_len) + val_end
+            n_test_chunks = int(len(np.unique(test_chunk_ids)))
     else:
         test_start = int(n_total * (cfg.train_ratio + cfg.val_ratio))
         test_indices = np.arange(
             test_start, n_total - cfg.seq_len - cfg.pred_len + 1
         )
+        n_test_chunks = 1
+
+    print(f"测试集 chunk 数量: {n_test_chunks}")
+    print(f"测试集窗口数量: {len(test_indices)}")
 
     if len(test_indices) == 0:
-        raise ValueError("测试集无法构造窗口，请检查数据长度与 train_ratio/val_ratio")
-
-    print(f"Test samples: {len(test_indices)}")
+        raise ValueError(
+            f"测试集无法构造窗口: 测试段长度不足 "
+            f"seq_len({cfg.seq_len}) + pred_len({cfg.pred_len})，或所有 chunk 均过短。"
+        )
 
     # 构造测试窗口
     x_test = np.stack([x[i : i + cfg.seq_len] for i in test_indices])
@@ -234,7 +278,15 @@ def run_inference(
     for name, value in overall.items():
         print(f"{name}: {value:.4f}")
 
-    return {"per_step": per_step, "overall": overall}
+    metrics = {"per_step": per_step, "overall": overall}
+
+    # 保存指标到模型目录
+    metrics_path = Path(model_save_dir) / "inference_metrics.json"
+    with open(metrics_path, "w", encoding="utf-8") as f:
+        json.dump(metrics, f, ensure_ascii=False, indent=2, default=str)
+    print(f"\n指标已保存到: {metrics_path}")
+
+    return metrics
 
 
 def _parse_args() -> argparse.Namespace:
