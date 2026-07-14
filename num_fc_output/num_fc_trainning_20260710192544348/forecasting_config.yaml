@@ -1,0 +1,44 @@
+operator:
+  name: "itransformer_forecaster"
+  input_columns:
+    - "ningjie_shuiliuliang_youxuanzhi"
+    - "gaoya_geishuiliuliang_youxuanzhi"
+    - "chuyangqi_tiaojiefa_weizhifankui"
+    - "ranji_fuhe"
+    - "qiji_fuhe"
+    - "chuyangqi_rukou_yali"
+    - "diya_qibao_yali_youxuanzhi"
+    - "diya_zhuqiliuliang_youxuanzhi"
+    - "gaoya_jianwenshui_liuliang"
+    - "ranji_paiqi_wendu"
+    - "diya_qibao_shuiwei_youxuanzhi"
+  target_column: "diya_qibao_shuiwei_youxuanzhi"
+  config:
+    seq_len: 100
+    pred_len: 30
+    d_model: 256
+    nhead: 4
+    num_layers: 2
+    dim_feedforward: 512
+    dropout: 0.2
+    step_cond_head: false
+    lag_aware: true
+    lag_max: 16
+    lag_bias_scale: 2.0
+    lag_dropout: 0.2
+    kan_grid_size: 5
+    target_idx: -1
+    epochs: 30
+    batch_size: 128
+    lr: 0.0002
+    weight_decay: 0.00001
+    early_stop_patience: 12
+    train_ratio: 0.7
+    val_ratio: 0.15
+    trend_weight: 1.0
+    time_weight_start: 0.1
+    time_weight_end: 1.0
+    max_grad_norm: 1.0
+    scheduler_factor: 0.5
+    scheduler_patience: 3
+    device: auto

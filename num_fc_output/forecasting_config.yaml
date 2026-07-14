@@ -1,0 +1,21 @@
+operator:
+  name: "itransformer_forecaster"
+  input_columns:
+    - "ningjie_shuiliuliang_youxuanzhi"
+    - "gaoya_geishuiliuliang_youxuanzhi"
+    - "chuyangqi_tiaojiefa_weizhifankui"
+    - "ranji_fuhe"
+    - "qiji_fuhe"
+    - "chuyangqi_rukou_yali"
+    - "diya_qibao_yali_youxuanzhi"
+    - "diya_zhuqiliuliang_youxuanzhi"
+    - "gaoya_jianwenshui_liuliang"
+    - "ranji_paiqi_wendu"
+    - "diya_qibao_shuiwei_youxuanzhi"
+  target_column: "diya_qibao_shuiwei_youxuanzhi"
+  config:
+    seq_len: 100
+    pred_len: 30
+    device: "cpu"
+    train_ratio: 0.70
+    val_ratio: 0.15

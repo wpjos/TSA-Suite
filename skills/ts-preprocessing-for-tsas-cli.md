@@ -130,11 +130,6 @@ config = {
     "max_gap": 5.0,                       # 超过该秒数视为断点
     "time_unit": "s",                     # 时间单位：s / m / h
 
-    # 缺失值插补
-    "impute_method": "linear",            # linear / ffill / bfill / median
-    "treat_zero_as_missing": True,        # 是否把 0 视为缺失值
-    "fill_remaining_na": False,           # 插值后剩余 NaN 是否填 0
-
     # 目标变量平滑
     "smooth_target": True,                # 是否对目标变量做平滑
     "smooth_alpha": 0.3,                  # EMA 平滑系数 (0~1)
@@ -211,37 +206,20 @@ def detect_time_gaps(timestamps, max_gap, time_unit='s'):
 ### 5.4 Missing Value Imputation（缺失值插补）
 
 ```python
-def impute_missing_values(data_array, chunk_ids, method='linear',
-                          treat_zero_as_missing=True, fill_remaining_na=False):
+def impute_missing_values(data_array, chunk_ids):
     """
     Args:
         data_array: np.ndarray, shape (N, num_features)
         chunk_ids: np.ndarray, shape (N,)
-        method: 'linear' | 'ffill' | 'bfill' | 'median'
-        treat_zero_as_missing: bool
-        fill_remaining_na: bool
     Returns:
         np.ndarray
     """
     df = pd.DataFrame(data_array)
-
-    if treat_zero_as_missing:
-        df = df.replace(0, np.nan)
-
-    if method == 'linear':
-        df = df.groupby(chunk_ids, group_keys=False).apply(
-            lambda x: x.interpolate(method='linear', limit_direction='both')
-        )
-    elif method == 'ffill':
-        df = df.groupby(chunk_ids, group_keys=False).apply(lambda x: x.ffill().bfill())
-    elif method == 'bfill':
-        df = df.groupby(chunk_ids, group_keys=False).apply(lambda x: x.bfill().ffill())
-    elif method == 'median':
-        df = df.groupby(chunk_ids, group_keys=False).transform(lambda x: x.fillna(x.median()))
-
-    if fill_remaining_na:
-        df = df.fillna(0)
-
+    df.replace(0, np.nan, inplace=True)
+    df = df.groupby(chunk_ids, group_keys=False).apply(
+        lambda x: x.interpolate(method='linear', limit_direction='both')
+    )
+    #df.fillna(0, inplace=True)
     return df.values
 ```
 
@@ -383,9 +361,6 @@ config = {
     "chunksize": 100000,
     "max_gap": 5.0,
     "time_unit": "s",
-    "impute_method": "linear",
-    "treat_zero_as_missing": True,
-    "fill_remaining_na": False,
     "smooth_target": True,
     "smooth_alpha": 0.3,
     "seq_len": 100,
@@ -412,12 +387,7 @@ target_idx = len(config["feature_cols"])
 X_data = df[numeric_cols].apply(pd.to_numeric, errors='coerce').values.astype(np.float32)
 
 # 6. 缺失值插补
-X_data = impute_missing_values(
-    X_data, chunk_ids,
-    method=config["impute_method"],
-    treat_zero_as_missing=config["treat_zero_as_missing"],
-    fill_remaining_na=config["fill_remaining_na"]
-)
+X_data = impute_missing_values(X_data, chunk_ids)
 
 # 7. 目标变量平滑
 if config["smooth_target"]:

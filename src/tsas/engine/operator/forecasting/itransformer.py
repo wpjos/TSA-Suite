@@ -65,7 +65,7 @@ class ITransformerForecasterConfig(BaseModel):
     # ---- 训练参数 ----
     epochs: int = Field(default=30, ge=15, le=120, description="最大训练轮数")
     batch_size: int = Field(default=128, ge=64, le=512, description="训练批次大小")
-    lr: float = Field(default=0.0002, ge=0.0001, le=0.0008, description="学习率")
+    lr: float = Field(default=0.001, ge=0.0005, le=0.004, description="学习率")
     weight_decay: float = Field(default=1e-5, ge=5e-6, le=4e-5, description="权重衰减")
     early_stop_patience: int = Field(default=12, ge=6, le=48, description="早停耐心轮数")
     train_ratio: float = Field(default=0.7, ge=0.7, le=0.7, description="训练集占比")
@@ -295,6 +295,17 @@ None]):
         self._scaler.fit(x[:max_train_row])
         x_scaled = self._scaler.transform(x)
         y_scaled = x_scaled[:, [self._target_idx]]
+
+        # 校验 scaler 是否产生 NaN/Inf 或除零
+        if np.isnan(x_scaled).any() or np.isinf(x_scaled).any():
+            raise ValueError(
+                "标准化后的 x 中存在 NaN 或 Inf，可能是某列标准差为 0 或输入包含非法数值。"
+            )
+        if (self._scaler.scale_ == 0).any():
+            zero_cols = np.where(self._scaler.scale_ == 0)[0]
+            raise ValueError(
+                f"以下列标准差为 0，标准化会除以 0: {zero_cols.tolist()}"
+            )
 
         # 3. 用缩放后的数据构造 DataLoader
         train_ds, val_ds, _, _ = self._make_datasets(x_scaled, y_scaled)

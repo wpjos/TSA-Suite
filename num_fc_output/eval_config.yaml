@@ -1,0 +1,9 @@
+operators:
+  - name: "forecasting_metrics"
+    alias: "forecast_metrics"
+    truth_columns: [ "y_true" ]
+    predict_columns: [ "y_pred" ]
+    config:
+      naive_error: 0.01
+      epsilon: 1e-8
+      max_dtw_len: 2000

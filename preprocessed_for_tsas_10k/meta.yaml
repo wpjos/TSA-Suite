@@ -1,0 +1,38 @@
+dataset:
+  time_col: datatime
+  feature_cols: &id001
+  - ningjie_shuiliuliang_youxuanzhi
+  - gaoya_geishuiliuliang_youxuanzhi
+  - chuyangqi_tiaojiefa_weizhifankui
+  - ranji_fuhe
+  - qiji_fuhe
+  - chuyangqi_rukou_yali
+  - diya_qibao_yali_youxuanzhi
+  - diya_zhuqiliuliang_youxuanzhi
+  - gaoya_jianwenshui_liuliang
+  - ranji_paiqi_wendu
+  target_col: diya_qibao_shuiwei_youxuanzhi
+  input_columns_itransformer:
+  - ningjie_shuiliuliang_youxuanzhi
+  - gaoya_geishuiliuliang_youxuanzhi
+  - chuyangqi_tiaojiefa_weizhifankui
+  - ranji_fuhe
+  - qiji_fuhe
+  - chuyangqi_rukou_yali
+  - diya_qibao_yali_youxuanzhi
+  - diya_zhuqiliuliang_youxuanzhi
+  - gaoya_jianwenshui_liuliang
+  - ranji_paiqi_wendu
+  - diya_qibao_shuiwei_youxuanzhi
+  input_columns_tree: *id001
+  n_train: 7000
+  n_val: 1500
+  n_test: 1500
+  seq_len: 100
+  pred_len: 30
+  n_chunks: 4
+output_files:
+  train: train.csv
+  chunk_ids: chunk_ids.csv
+  test_window: test_window.csv
+  test_truth: test_truth.csv

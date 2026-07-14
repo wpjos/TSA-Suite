@@ -23,6 +23,10 @@ import numpy as np
 import pandas as pd
 import yaml
 
+# 强制无缓冲输出，确保 print 和子进程输出实时显示
+os.environ["PYTHONUNBUFFERED"] = "1"
+sys.stdout.reconfigure(line_buffering=True)
+
 
 def _setup_tsa_suite_paths(tsa_suite_root: Path) -> Path:
     """把 TSA-Suite src 目录加入当前进程和子进程 PYTHONPATH。"""
@@ -143,8 +147,8 @@ def impute_missing_values(data: np.ndarray, chunk_ids: np.ndarray) -> np.ndarray
     df = df.groupby(chunk_ids, group_keys=False).apply(
         lambda x: x.interpolate(method="linear", limit_direction="both")
     )
-    df.fillna(0, inplace=True)
-    return df.values.astype(np.float32)
+
+    return df.values
 
 
 def double_ema_smooth(
@@ -162,7 +166,35 @@ def double_ema_smooth(
     return data
 
 
-def temporal_split(
+def _validate_preprocessed_data(
+    df: pd.DataFrame,
+    numeric_cols: list[str],
+    train_end: int,
+    split_name: str = "train+val",
+) -> None:
+    """检查预处理后的训练数据是否存在会导致 loss=NaN 的异常情况。"""
+    train_df = df.iloc[:train_end]
+    values = train_df[numeric_cols].values.astype(np.float32)
+
+    nan_count = np.isnan(values).sum()
+    inf_count = np.isinf(values).sum()
+    if nan_count > 0 or inf_count > 0:
+        raise ValueError(
+            f"{split_name} 数据中存在 NaN/Inf: nan={nan_count}, inf={inf_count}\n"
+            f"请检查原始数据或调整缺失值插补逻辑。"
+        )
+
+    std = train_df[numeric_cols].std()
+    zero_std = std[std == 0].index.tolist()
+    if zero_std:
+        raise ValueError(
+            f"{split_name} 数据中存在标准差为 0 的列（常量列）: {zero_std}\n"
+            f"这些列会导致标准化后除以 0，从而产生 NaN。"
+        )
+
+    print(f"[VALIDATE] {split_name} 数据检查通过: 行数={len(train_df)}, 列数={len(numeric_cols)}")
+    print(f"[VALIDATE] 各列 std 范围: [{std.min():.6f}, {std.max():.6f}]")
+
     n_total: int, train_ratio: float, val_ratio: float
 ) -> tuple[int, int, int]:
     n_train = int(n_total * train_ratio)
@@ -224,6 +256,9 @@ def preprocess(args: argparse.Namespace) -> dict:
     df_train = df.iloc[: n_train + n_val].copy()
     df_test = df.iloc[n_train + n_val :].copy()
     test_chunk_ids = chunk_ids[n_train + n_val :]
+
+    # 数据校验：必须在保存前通过
+    _validate_preprocessed_data(df, numeric_cols, n_train + n_val)
 
     # Save outputs
     train_path = output_dir / "train.csv"
@@ -633,6 +668,11 @@ def main() -> int:
     parser.add_argument("--n_jobs", type=int, default=-1)
 
     args = parser.parse_args(remaining_argv)
+    print(f"[START] run_sliding_window_eval.py")
+    print(f"  tsa_suite_root: {args.tsa_suite_root}")
+    print(f"  config: {config_path}")
+    print(f"  data_file: {args.data_file}")
+    print(f"  output_dir: {args.output_dir}")
 
     # Required fields that may come from config
     if not args.target_col:
