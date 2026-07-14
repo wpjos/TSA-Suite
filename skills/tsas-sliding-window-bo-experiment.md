@@ -1,4 +1,19 @@
-请基于以下三个 skill，完成一次 TSAS-CLI 时序预测实验：测试集 stride=1 滑窗评估 + 基于 `bo-for-experiment` 的 10 轮超参数闭环寻优。
+---
+name: tsas-sliding-window-bo-experiment
+description: >
+  TSAS-CLI 时序预测端到端实验：数据预处理、模型训练、推理评估，
+  并通过 bo-for-experiment 进行贝叶斯优化（BO）超参数寻优。
+version: 1.0.0
+triggers:
+  - TSAS 滑窗评估 BO 实验
+  - TSAS 时序预测超参数优化
+  - tsas sliding window bo
+  - tsas forecasting bo experiment
+  - 时序预测 BO 闭环实验
+  - TSAS 10轮超参数寻优
+---
+
+请基于以下三个 skill，完成一次 TSAS-CLI 时序预测实验：测试集滑窗评估 + 基于 `bo-for-experiment` 的 `<n_trials>` 轮超参数闭环寻优。
 
 - `.claude/skills/ts-preprocessing-for-tsas-cli.md`
 - `.claude/skills/tsas-num-forecasting-model/SKILL.md`
@@ -18,6 +33,7 @@
 | Python 环境 | TSAS: `<tsa-suite-env-python>`, BO: `<bo-env-python>` |
 | 输出根目录 | `<output_dir>` |
 | 推理 batch size | `<eval_batch_size>`（默认 2000；一次性 OOM 时改小） |
+| BO 迭代轮数 | `<n_trials>`（默认 10；trial 0 用默认参数，trial 1 ~ n_trials-1 由 BO 推荐） |
 
 ### BO 配置
 
@@ -25,7 +41,7 @@
 - 参数空间：`<bo_params_config>`（示例见下）
 - 优化目标：`<bo_objectives>`，示例 `[{"name":"overall_mae","direction":"min"}]`
 - 默认参数：`<default_params>`
-- 迭代：共 **10 轮**，trial 0 用默认参数，trial 1~9 由 BO 推荐
+- 迭代：共 **`<n_trials>` 轮**，trial 0 用默认参数，trial 1 ~ `<n_trials-1>` 由 BO 推荐
 
 参数空间示例：
 
@@ -43,8 +59,14 @@
 
 按 `ts-preprocessing-for-tsas-cli.md` 预处理一次，输出：
 
-- `train.csv`、`chunk_ids.csv`、`test_window.csv`、`test_truth.csv`、`meta.yaml`
-- **额外**：`test.csv`（完整测试集）和 `test_chunk_ids.csv`（单列表、无表头），用于滑窗评估
+- `train.csv`：**完整预处理后的数据**（全部行），供 `forecasting fit` 使用
+- `chunk_ids.csv`：**完整数据对应的 chunk 编号**（单列表、无表头），与 `train.csv` 行对齐
+- `test.csv`：**完整预处理后的数据**（与 `train.csv` 内容相同），供滑窗评估时构造测试窗口的历史输入
+- `test_chunk_ids.csv`：**完整数据对应的 chunk 编号**（单列表、无表头），与 `test.csv` 行对齐
+- `test_window_indices.csv`：按 `stride=1` 在完整数据上计算出的**测试窗口起始索引**（`idx_test`），评估阶段直接用它构造 `x_test / y_true`
+- `test_window.csv`：第一个测试窗口的输入序列（`seq_len` 行），作为 `forecasting run` 示例输入
+- `test_truth.csv`：第一个测试窗口对应的真实目标值（`pred_len` 行）
+- `meta.yaml`：配置与统计信息（`n_train / n_val / n_test` 为窗口数）
 
 ## 三、单轮训练与评估
 
@@ -80,9 +102,11 @@ operator:
 
 生成 `evaluate_sliding_window.py`，要求：
 
-1. 读取 `test.csv` 和 `test_chunk_ids.csv`，按 chunk 分组
-2. 每 chunk 内 `stride=1` 滑窗；chunk 长度 `< seq_len + pred_len` 则跳过
-3. 把所有有效窗口拼接成 `x_test`，形状 `[N_windows, seq_len, num_features]`；对应的真实值 `y_true` 形状 `[N_windows, pred_len, num_targets]`
+1. 读取 `test_window_indices.csv` 得到测试窗口起始索引 `idx_test`（已按 `stride=1` 生成）
+2. 读取 `test.csv` 获取完整预处理后的数据
+3. 按 `idx_test` 构造 `x_test`，形状 `[N_windows, seq_len, num_features]`；对应的真实值 `y_true` 形状 `[N_windows, pred_len, num_targets]`。由于 `idx_test` 是 `stride=1` 的连续窗口起始索引，直接按索引切片即等价于在测试分区做 `stride=1` 滑窗评估：
+   - 第 `i` 个窗口：`x_test[i] = test_values[idx_test[i] : idx_test[i] + seq_len]`
+   - 第 `i` 个窗口：`y_true[i] = test_values[idx_test[i] + seq_len : idx_test[i] + seq_len + pred_len, target_idx]`
 4. **批量推理**：用算子 Python API 加载已训练模型并推理
    ```python
    forecaster = <OperatorClass>.load(<output_dir>/trial_<i>/model)
@@ -135,7 +159,7 @@ operators:
 - 训练 → 滑窗评估 → 从 `overall_metrics.json` 提取目标指标
 - 记录 `(params, metric)`
 
-### 3. Trial 1~9：BO 推荐
+### 3. Trial 1 ~ `<n_trials-1>`：BO 推荐
 
 ```bash
 <bo-env-python> .claude/skills/bo-for-experiment/main.py --mode iterate \
@@ -152,7 +176,7 @@ operators:
 
 ### 4. 输出最优参数
 
-10 轮后读取 `<output_dir>/bo/<bo_task_id>_history.json`，按目标方向选出最优 trial，保存：
+`<n_trials>` 轮后读取 `<output_dir>/bo/<bo_task_id>_history.json`，按目标方向选出最优 trial，保存：
 
 ```json
 {
@@ -180,4 +204,4 @@ operators:
 2. `eval_config.yaml`
 3. `evaluate_sliding_window.py`
 4. `bo_sliding_window_loop.py`
-5. `run_experiment.sh`（预处理 → BO 初始化 → 10 轮闭环 → 输出最优参数）
+5. `run_experiment.sh`（预处理 → BO 初始化 → `<n_trials>` 轮闭环 → 输出最优参数）

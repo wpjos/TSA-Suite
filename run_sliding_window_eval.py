@@ -22,6 +22,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import yaml
+from sklearn.model_selection import train_test_split
 
 # 强制无缓冲输出，确保 print 和子进程输出实时显示
 os.environ["PYTHONUNBUFFERED"] = "1"
@@ -166,6 +167,24 @@ def double_ema_smooth(
     return data
 
 
+def _get_valid_window_indices(
+    chunk_ids: np.ndarray, seq_len: int, pred_len: int
+) -> np.ndarray:
+    """Return valid window start indices that do not cross chunk boundaries.
+
+    Mirrors get_valid_indices in train_new.py and _get_valid_indices in
+    ITransformerForecaster.
+    """
+    valid_indices = []
+    for cid in np.unique(chunk_ids):
+        mask = chunk_ids == cid
+        chunk_row_indices = np.where(mask)[0]
+        num_samples = len(chunk_row_indices) - seq_len - pred_len + 1
+        if num_samples > 0:
+            valid_indices.extend(chunk_row_indices[:num_samples].tolist())
+    return np.array(valid_indices, dtype=int)
+
+
 def _validate_preprocessed_data(
     df: pd.DataFrame,
     numeric_cols: list[str],
@@ -195,6 +214,8 @@ def _validate_preprocessed_data(
     print(f"[VALIDATE] {split_name} 数据检查通过: 行数={len(train_df)}, 列数={len(numeric_cols)}")
     print(f"[VALIDATE] 各列 std 范围: [{std.min():.6f}, {std.max():.6f}]")
 
+
+def temporal_split(
     n_total: int, train_ratio: float, val_ratio: float
 ) -> tuple[int, int, int]:
     n_train = int(n_total * train_ratio)
@@ -250,43 +271,66 @@ def preprocess(args: argparse.Namespace) -> dict:
 
     df[numeric_cols] = data
 
-    # Temporal split
-    n_total = len(df)
-    n_train, n_val, n_test = temporal_split(n_total, args.train_ratio, args.val_ratio)
-    df_train = df.iloc[: n_train + n_val].copy()
-    df_test = df.iloc[n_train + n_val :].copy()
-    test_chunk_ids = chunk_ids[n_train + n_val :]
+    # Compute valid window-start indices on the FULL dataset (matching train_new.py)
+    valid_indices = _get_valid_window_indices(chunk_ids, args.seq_len, args.pred_len)
+    if len(valid_indices) == 0:
+        raise ValueError(
+            f"没有可用样本：所有 chunk 的长度都小于 "
+            f"seq_len + pred_len = {args.seq_len + args.pred_len}"
+        )
 
-    # 数据校验：必须在保存前通过
-    _validate_preprocessed_data(df, numeric_cols, n_train + n_val)
+    idx_train, idx_temp = train_test_split(
+        valid_indices,
+        test_size=1 - args.train_ratio,
+        random_state=42,
+        shuffle=False,
+    )
+    val_size = args.val_ratio / (1 - args.train_ratio)
+    idx_val, idx_test = train_test_split(
+        idx_temp, test_size=1 - val_size, random_state=42, shuffle=False
+    )
+
+    if len(idx_train) == 0 or len(idx_val) == 0 or len(idx_test) == 0:
+        raise ValueError(
+            f"有效窗口数 {len(valid_indices)} 不足以按 "
+            f"{args.train_ratio}/{args.val_ratio} 划分: "
+            f"train={len(idx_train)}, val={len(idx_val)}, test={len(idx_test)}"
+        )
+
+    # The scaler in ITransformerForecaster is fitted up to max_train_row rows.
+    max_train_row = int(idx_train[-1]) + args.seq_len + args.pred_len
+    _validate_preprocessed_data(df, numeric_cols, max_train_row, split_name="train")
 
     # Save outputs
     train_path = output_dir / "train.csv"
     chunk_ids_path = output_dir / "chunk_ids.csv"
     test_path = output_dir / "test.csv"
     test_chunk_ids_path = output_dir / "test_chunk_ids.csv"
+    test_window_indices_path = output_dir / "test_window_indices.csv"
     test_window_path = output_dir / "test_window.csv"
     test_truth_path = output_dir / "test_truth.csv"
     meta_path = output_dir / "meta.yaml"
 
-    df_train[[args.time_col] + numeric_cols].to_csv(train_path, index=False)
-    pd.DataFrame(chunk_ids[: n_train + n_val]).to_csv(
-        chunk_ids_path, index=False, header=False
-    )
-    df_test[[args.time_col] + numeric_cols].to_csv(test_path, index=False)
-    pd.DataFrame(test_chunk_ids).to_csv(test_chunk_ids_path, index=False, header=False)
+    # Pass the full preprocessed data to the forecaster; the operator will
+    # reproduce the same 70/15/15 window-index split internally.
+    df[[args.time_col] + numeric_cols].to_csv(train_path, index=False)
+    pd.DataFrame(chunk_ids).to_csv(chunk_ids_path, index=False, header=False)
 
-    if len(df_test) < args.seq_len + args.pred_len:
-        raise ValueError(
-            f"测试集长度 {len(df_test)} 不足以构造 "
-            f"seq_len={args.seq_len} + pred_len={args.pred_len}"
-        )
-    df_test.iloc[: args.seq_len][[args.time_col] + numeric_cols].to_csv(
-        test_window_path, index=False
-    )
-    df_test.iloc[args.seq_len : args.seq_len + args.pred_len][[args.target_col]].to_csv(
-        test_truth_path, index=False
-    )
+    # test.csv holds the same full data so evaluate() can build test windows
+    # from idx_test (their input history may reach back into earlier rows).
+    df[[args.time_col] + numeric_cols].to_csv(test_path, index=False)
+    pd.DataFrame(chunk_ids).to_csv(test_chunk_ids_path, index=False, header=False)
+    pd.DataFrame(idx_test).to_csv(test_window_indices_path, index=False, header=False)
+
+    if len(idx_test) == 0:
+        raise ValueError("测试窗口数为 0，无法生成 demo test_window/test_truth")
+    first_test_start = int(idx_test[0])
+    df.iloc[first_test_start : first_test_start + args.seq_len][
+        [args.time_col] + numeric_cols
+    ].to_csv(test_window_path, index=False)
+    df.iloc[
+        first_test_start + args.seq_len : first_test_start + args.seq_len + args.pred_len
+    ][[args.target_col]].to_csv(test_truth_path, index=False)
 
     meta = {
         "dataset": {
@@ -294,19 +338,20 @@ def preprocess(args: argparse.Namespace) -> dict:
             "feature_cols": feature_cols,
             "target_col": args.target_col,
             "input_columns": numeric_cols,
-            "n_train": n_train,
-            "n_val": n_val,
-            "n_test": len(df_test),
+            "n_train": len(idx_train),
+            "n_val": len(idx_val),
+            "n_test": len(idx_test),
             "seq_len": args.seq_len,
             "pred_len": args.pred_len,
-            "n_train_chunks": int(len(np.unique(chunk_ids[: n_train + n_val]))),
-            "n_test_chunks": int(len(np.unique(test_chunk_ids))),
+            "n_train_chunks": int(len(np.unique(chunk_ids[:max_train_row]))),
+            "n_test_chunks": int(len(np.unique(chunk_ids))),
         },
         "output_files": {
             "train": str(train_path),
             "chunk_ids": str(chunk_ids_path),
             "test": str(test_path),
             "test_chunk_ids": str(test_chunk_ids_path),
+            "test_window_indices": str(test_window_indices_path),
             "test_window": str(test_window_path),
             "test_truth": str(test_truth_path),
         },
@@ -409,19 +454,14 @@ def evaluate(args: argparse.Namespace) -> dict:
     test_chunk_ids = (
         pd.read_csv(output_dir / "test_chunk_ids.csv", header=None).iloc[:, 0].values
     )
+    test_window_indices = (
+        pd.read_csv(output_dir / "test_window_indices.csv", header=None).iloc[:, 0].values
+    )
     numeric_cols = [c for c in test_df.columns if c != args.time_col]
     target_idx = numeric_cols.index(args.target_col)
     num_targets = 1
 
-    # Generate valid window start indices per chunk
-    valid_indices = []
-    for cid in np.unique(test_chunk_ids):
-        mask = test_chunk_ids == cid
-        chunk_row_indices = np.where(mask)[0]
-        num_samples = len(chunk_row_indices) - args.seq_len - args.pred_len + 1
-        if num_samples > 0:
-            valid_indices.extend(chunk_row_indices[:num_samples].tolist())
-    valid_indices = np.array(valid_indices, dtype=int)
+    valid_indices = np.array(test_window_indices, dtype=int)
 
     n_windows = len(valid_indices)
     n_test_chunks = int(len(np.unique(test_chunk_ids)))
@@ -430,13 +470,12 @@ def evaluate(args: argparse.Namespace) -> dict:
 
     if n_windows == 0:
         raise ValueError(
-            f"测试集无法构造窗口: 所有 chunk 长度均 < "
-            f"seq_len({args.seq_len}) + pred_len({args.pred_len})"
+            f"测试集窗口数为 0，无法进行评估。"
         )
 
     test_values = test_df[numeric_cols].values.astype(np.float32)
 
-    # Construct batched windows
+    # Construct batched windows from the pre-computed test window starts
     x_test = np.stack([test_values[i : i + args.seq_len] for i in valid_indices])
     y_true = np.stack([
         test_values[i + args.seq_len : i + args.seq_len + args.pred_len, target_idx : target_idx + 1]

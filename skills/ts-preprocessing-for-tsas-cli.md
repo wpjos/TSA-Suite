@@ -2,11 +2,14 @@
 name: ts-preprocessing-for-tsas-cli
 description: >
   为 TSAS-CLI 时序预测算子生成可直接消费的 CSV 文件。
-  将原始时间序列 CSV 预处理为 train.csv、chunk_ids.csv、test_window.csv、
-  test_truth.csv 和 meta.yaml，供 itransformer_forecaster、lightgbm_forecaster、
-  xgboost_forecaster 等算子通过 forecasting fit / run 子命令使用。
+  将原始时间序列 CSV 预处理为 train.csv、chunk_ids.csv、test_window_indices.csv、
+  test_window.csv、test_truth.csv 和 meta.yaml，供 itransformer_forecaster、
+  lightgbm_forecaster、xgboost_forecaster 等算子通过 forecasting fit / run
+  子命令使用。
   不做特征缩放、滑动窗口和残差标签（TSAS 算子内部处理），但保留时间断点检测
   和 chunk_ids 输出，避免 iTransformer 训练窗口跨越时间断层。
+  划分逻辑与 train_new.py 对齐：先计算完整数据上的合法窗口起始索引，再按
+  70/15/15 切分窗口索引。
 version: 1.0.0
 triggers:
   - tsas 预处理
@@ -43,16 +46,20 @@ triggers:
 
 | 文件 | 用途 | 形状/格式 |
 |---|---|---|
-| `train.csv` | `forecasting fit --input` | `(n_train + n_val, 1 + num_features)`，含 `time_col` + feature_cols + target_col |
-| `chunk_ids.csv` | `forecasting fit --chunk-ids` | `(n_train + n_val, 1)`，单列表，无表头，每行一个整数 |
-| `test_window.csv` | `forecasting run --input` | `(seq_len, 1 + num_features)`，测试集前 `seq_len` 行 |
-| `test_truth.csv` | `evaluation run` 真实值 | `(pred_len, 1)`，测试集第 `[seq_len : seq_len + pred_len]` 行的 target_col |
-| `meta.yaml` | 辅助配置生成 | 列名、split 大小、`seq_len`、`pred_len`、输出文件清单 |
+| `train.csv` | `forecasting fit --input` | `(n_total_rows, 1 + num_features)`，**完整预处理后的数据**，含 `time_col` + feature_cols + target_col |
+| `chunk_ids.csv` | `forecasting fit --chunk-ids` | `(n_total_rows, 1)`，单列表，无表头，每行一个整数 chunk 编号 |
+| `test_window_indices.csv` | 评估时构造测试窗口 | `(n_test_windows, 1)`，测试窗口起始索引 |
+| `test_window.csv` | `forecasting run --input` 示例 | `(seq_len, 1 + num_features)`，**第一个测试窗口**的输入序列 |
+| `test_truth.csv` | `evaluation run` 真实值 | `(pred_len, 1)`，第一个测试窗口对应的 target_col |
+| `meta.yaml` | 辅助配置生成 | 列名、split 窗口数、`seq_len`、`pred_len`、输出文件清单 |
 
-**切分语义**：
+**切分语义**（与 `train_new.py` 对齐）：
 
-- `train.csv` = 外部训练集 + 外部验证集。TSAS 算子内部会再按 `train_ratio` / `val_ratio` 切分。
-- `test_window.csv` / `test_truth.csv` 来自外部测试集，不参与训练。
+- 先在**完整数据**上计算不跨越 chunk 边界的合法窗口起始索引 `valid_indices`。
+- 再对 `valid_indices` 按时间顺序切分为 train / val / test（默认 70% / 15% / 15%，`shuffle=False`，`random_state=42`）。
+- `train.csv` / `chunk_ids.csv` 保存完整数据，供 `ITransformerForecaster` 内部复现同一套窗口切分。
+- `test_window_indices.csv` 保存测试窗口起始索引，评估阶段直接用它构造 `x_test / y_true`。
+- `test_window.csv` / `test_truth.csv` 仅作为单窗口推理示例。
 
 ---
 
@@ -99,12 +106,14 @@ triggers:
     │
     ▼
 ┌─────────────────────────────────────────┐
-│ Step 6: Temporal Split                  │
-│ 按时间顺序划分 train / val / test       │
+│ Step 6: Window-Index Split              │
+│ 先算完整数据的合法窗口起始索引，        │
+│ 再按 70/15/15 切分窗口索引              │
 └─────────────────────────────────────────┘
     │
     ▼
 输出：train.csv, chunk_ids.csv,
+      test_window_indices.csv,
       test_window.csv, test_truth.csv, meta.yaml
 ```
 
@@ -241,27 +250,56 @@ def double_ema_smooth(data_array, chunk_ids, target_idx, alpha=0.3):
     return data_array
 ```
 
-### 5.6 Temporal Split（时序划分）
+### 5.6 Window-Index Split（窗口索引切分）
+
+与 `train_new.py` 对齐：先计算完整数据上的合法窗口起始索引，再对索引做 70/15/15 切分。
 
 ```python
-def temporal_split(n_total, train_ratio=0.70, val_ratio=0.15, test_ratio=0.15):
-    """
-    按时间顺序划分训练/验证/测试集，返回三个分区的行数。
-    """
-    if abs(train_ratio + val_ratio + test_ratio - 1.0) > 1e-6:
-        raise ValueError("train_ratio + val_ratio + test_ratio 必须等于 1.0")
+from sklearn.model_selection import train_test_split
 
-    n_train = int(n_total * train_ratio)
-    n_val = int(n_total * val_ratio)
-    n_test = n_total - n_train - n_val
+def _get_valid_window_indices(chunk_ids, seq_len, pred_len):
+    """
+    返回不跨越 chunk 边界的合法窗口起始索引。
+    """
+    valid_indices = []
+    for cid in np.unique(chunk_ids):
+        mask = chunk_ids == cid
+        chunk_row_indices = np.where(mask)[0]
+        num_samples = len(chunk_row_indices) - seq_len - pred_len + 1
+        if num_samples > 0:
+            valid_indices.extend(chunk_row_indices[:num_samples].tolist())
+    return np.array(valid_indices, dtype=int)
 
-    if n_train <= 0 or n_val <= 0 or n_test <= 0:
+
+def split_window_indices(valid_indices, train_ratio=0.70, val_ratio=0.15):
+    """
+    按时间顺序切分窗口起始索引，返回 idx_train, idx_val, idx_test。
+    """
+    if len(valid_indices) == 0:
+        raise ValueError("valid_indices 为空")
+
+    idx_train, idx_temp = train_test_split(
+        valid_indices,
+        test_size=1 - train_ratio,
+        random_state=42,
+        shuffle=False,
+    )
+    val_size = val_ratio / (1 - train_ratio)
+    idx_val, idx_test = train_test_split(
+        idx_temp,
+        test_size=1 - val_size,
+        random_state=42,
+        shuffle=False,
+    )
+
+    if len(idx_train) == 0 or len(idx_val) == 0 or len(idx_test) == 0:
         raise ValueError(
-            f"数据量不足以按 {train_ratio}:{val_ratio}:{test_ratio} 划分: "
-            f"n_total={n_total}, n_train={n_train}, n_val={n_val}, n_test={n_test}"
+            f"有效窗口数 {len(valid_indices)} 不足以按 "
+            f"{train_ratio}/{val_ratio} 划分: "
+            f"train={len(idx_train)}, val={len(idx_val)}, test={len(idx_test)}"
         )
 
-    return n_train, n_val, n_test
+    return idx_train, idx_val, idx_test
 ```
 
 ### 5.7 Save Outputs（保存 TSAS-CLI 输入文件）
@@ -276,44 +314,50 @@ def save_tsas_outputs(
     feature_cols,
     target_col,
     chunk_ids,
-    n_train,
-    n_val,
+    idx_train,
+    idx_val,
+    idx_test,
     seq_len,
     pred_len,
     output_dir,
 ):
     """
-    保存 train.csv / chunk_ids.csv / test_window.csv / test_truth.csv / meta.yaml。
+    保存 train.csv / chunk_ids.csv / test_window_indices.csv /
+    test_window.csv / test_truth.csv / meta.yaml。
     """
     os.makedirs(output_dir, exist_ok=True)
 
     numeric_cols = feature_cols + [target_col]
-    df_train = df_full.iloc[:n_train + n_val].copy()
-    df_test = df_full.iloc[n_train + n_val:].copy()
 
-    # 1. train.csv
+    # 1. train.csv：完整预处理数据（ITransformerForecaster 内部复现同一套窗口切分）
     train_path = os.path.join(output_dir, "train.csv")
-    df_train[[time_col] + numeric_cols].to_csv(train_path, index=False)
+    df_full[[time_col] + numeric_cols].to_csv(train_path, index=False)
 
     # 2. chunk_ids.csv（与 train.csv 行对齐，无表头）
     chunk_ids_path = os.path.join(output_dir, "chunk_ids.csv")
-    pd.DataFrame(chunk_ids[:n_train + n_val]).to_csv(chunk_ids_path, index=False, header=False)
+    pd.DataFrame(chunk_ids).to_csv(chunk_ids_path, index=False, header=False)
 
-    # 3. test_window.csv
-    if len(df_test) < seq_len + pred_len:
-        raise ValueError(
-            f"测试集长度 {len(df_test)} 不足以构造 seq_len={seq_len} + pred_len={pred_len}"
-        )
-    test_window = df_test.iloc[:seq_len]
+    # 3. test_window_indices.csv：评估时直接读取
+    test_window_indices_path = os.path.join(output_dir, "test_window_indices.csv")
+    pd.DataFrame(idx_test).to_csv(test_window_indices_path, index=False, header=False)
+
+    # 4. test_window.csv：第一个测试窗口的输入序列
+    if len(idx_test) == 0:
+        raise ValueError("测试窗口数为 0，无法生成 test_window/test_truth")
+    first_test_start = int(idx_test[0])
+    test_window = df_full.iloc[first_test_start : first_test_start + seq_len]
     test_window_path = os.path.join(output_dir, "test_window.csv")
     test_window[[time_col] + numeric_cols].to_csv(test_window_path, index=False)
 
-    # 4. test_truth.csv
-    test_truth = df_test.iloc[seq_len:seq_len + pred_len][[target_col]]
+    # 5. test_truth.csv：第一个测试窗口对应的目标值
+    test_truth = df_full.iloc[
+        first_test_start + seq_len : first_test_start + seq_len + pred_len
+    ][[target_col]]
     test_truth_path = os.path.join(output_dir, "test_truth.csv")
     test_truth.to_csv(test_truth_path, index=False)
 
-    # 5. meta.yaml
+    # 6. meta.yaml
+    max_train_row = int(idx_train[-1]) + seq_len + pred_len
     meta = {
         "dataset": {
             "time_col": time_col,
@@ -321,16 +365,18 @@ def save_tsas_outputs(
             "target_col": target_col,
             "input_columns_itransformer": feature_cols + [target_col],
             "input_columns_tree": feature_cols,
-            "n_train": n_train,
-            "n_val": n_val,
-            "n_test": len(df_test),
+            "n_train": len(idx_train),
+            "n_val": len(idx_val),
+            "n_test": len(idx_test),
             "seq_len": seq_len,
             "pred_len": pred_len,
-            "n_chunks": int(len(np.unique(chunk_ids[:n_train + n_val]))),
+            "n_train_chunks": int(len(np.unique(chunk_ids[:max_train_row]))),
+            "n_test_chunks": int(len(np.unique(chunk_ids))),
         },
         "output_files": {
             "train": "train.csv",
             "chunk_ids": "chunk_ids.csv",
+            "test_window_indices": "test_window_indices.csv",
             "test_window": "test_window.csv",
             "test_truth": "test_truth.csv",
         },
@@ -367,7 +413,7 @@ config = {
     "pred_len": 30,
     "train_ratio": 0.70,
     "val_ratio": 0.15,
-    "test_ratio": 0.15,
+    # test_ratio 隐式为 1 - train_ratio - val_ratio
 }
 
 # 2. 读取数据
@@ -396,13 +442,12 @@ if config["smooth_target"]:
 # 8. 把处理后的数值列写回 DataFrame（保留时间列）
 df[numeric_cols] = X_data
 
-# 9. 时序划分
-n_total = len(df)
-n_train, n_val, n_test = temporal_split(
-    n_total,
+# 9. 窗口索引切分（与 train_new.py 对齐）
+valid_indices = _get_valid_window_indices(chunk_ids, config["seq_len"], config["pred_len"])
+idx_train, idx_val, idx_test = split_window_indices(
+    valid_indices,
     train_ratio=config["train_ratio"],
     val_ratio=config["val_ratio"],
-    test_ratio=config["test_ratio"]
 )
 
 # 10. 保存输出
@@ -412,8 +457,9 @@ save_tsas_outputs(
     feature_cols=config["feature_cols"],
     target_col=config["target_col"],
     chunk_ids=chunk_ids,
-    n_train=n_train,
-    n_val=n_val,
+    idx_train=idx_train,
+    idx_val=idx_val,
+    idx_test=idx_test,
     seq_len=config["seq_len"],
     pred_len=config["pred_len"],
     output_dir=config["output_dir"],
